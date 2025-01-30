@@ -1,5 +1,5 @@
 /*******************************************************************************
-** GRAPHICSPACK (GUI Graphics Packer) - No Shinobi Knows Me 2024
+** GRAPHICSPACK (GUI Graphics Packer) - No Shinobi Knows Me 2025
 *******************************************************************************/
 
 /*******************************************************************************
@@ -25,6 +25,27 @@ typedef unsigned short  uint16;
 typedef unsigned long   uint32;
 #endif
 
+enum
+{
+  GRAPHICS_PALETTE_TEXT_GREY = 0, 
+  GRAPHICS_PALETTE_TEXT_DARK, 
+  GRAPHICS_PALETTE_TEXT_HUE_01, 
+  GRAPHICS_PALETTE_TEXT_HUE_02, 
+  GRAPHICS_PALETTE_TEXT_HUE_03, 
+  GRAPHICS_PALETTE_TEXT_HUE_04, 
+  GRAPHICS_PALETTE_TEXT_HUE_05, 
+  GRAPHICS_PALETTE_TEXT_HUE_06, 
+  GRAPHICS_PALETTE_TEXT_HUE_07, 
+  GRAPHICS_PALETTE_BG_HUE_01, 
+  GRAPHICS_PALETTE_BG_HUE_02, 
+  GRAPHICS_PALETTE_BG_HUE_03, 
+  GRAPHICS_PALETTE_BG_HUE_04, 
+  GRAPHICS_PALETTE_BG_HUE_05, 
+  GRAPHICS_PALETTE_BG_HUE_06, 
+  GRAPHICS_PALETTE_BG_HUE_07, 
+  GRAPHICS_NUM_PALETTES 
+};
+
 #define GRAPHICS_PACK_INTO_15_BIT_RGB(r, g, b, value)                          \
   value = ((r << 7) & 0x7C00) | ((g << 2) & 0x03E0) | ((b >> 3) & 0x001F);
 
@@ -33,25 +54,37 @@ typedef unsigned long   uint32;
   g = ((value >> 2) & 0xF8) | ((value >> 7) & 0x07);                           \
   b = ((value << 3) & 0xF8) | ((value >> 2) & 0x07);
 
-#define GRAPHICS_NUM_SHADES  4
-#define GRAPHICS_NUM_HUES   15
+#define GRAPHICS_NUM_SHADES 4
+#define GRAPHICS_NUM_HUES   7
 
-#define GRAPHICS_NUM_PALETTES       (GRAPHICS_NUM_HUES + 1)
-#define GRAPHICS_COLORS_PER_PALETTE 16
+#define GRAPHICS_PALETTES_BUFFER_SIZE (GRAPHICS_NUM_PALETTES * GRAPHICS_NUM_SHADES)
 
-#define GRAPHICS_PALETTES_BUFFER_SIZE (GRAPHICS_NUM_PALETTES * GRAPHICS_COLORS_PER_PALETTE)
-
-#define GRAPHICS_NUM_CELLS       160 /* 16 * 10 */
-#define GRAPHICS_PIXELS_PER_CELL  64 /*  8 *  8 */
+#define GRAPHICS_NUM_CELLS       128 /* 16 x 8 */
+#define GRAPHICS_PIXELS_PER_CELL  64 /*  8 x 8 */
 
 #define GRAPHICS_CELLS_BUFFER_SIZE (GRAPHICS_NUM_CELLS * GRAPHICS_PIXELS_PER_CELL)
 
 /* tables */
-static float  S_lum_table[GRAPHICS_NUM_SHADES] = 
-              { 1 / 6.0f, 2 / 6.0f, 4 / 6.0f, 5 / 6.0f };
+static float  S_text_lum_table[GRAPHICS_NUM_SHADES] = 
+              { 0.0f, 0.7f, 0.85f, 1.0f };
 
-static float  S_sat_table[GRAPHICS_NUM_SHADES] = 
-              { 1 / 6.0f, 2 / 6.0f, 2 / 6.0f, 1 / 6.0f };
+static float  S_text_sat_table[GRAPHICS_NUM_SHADES] = 
+              { 0.0f, 0.3f, 0.15f, 0.0f };
+
+static float  S_silhouette_lum_table[GRAPHICS_NUM_SHADES] = 
+              { 0.0f, 0.0f, 0.15f, 0.3f };
+
+static float  S_silhouette_sat_table[GRAPHICS_NUM_SHADES] = 
+              { 0.0f, 0.0f, 0.15f, 0.3f };
+
+static float  S_bg_lum_table[GRAPHICS_NUM_SHADES] = 
+              { 0.0f, 0.15f, 0.3f, 0.7f };
+
+static float  S_bg_sat_table[GRAPHICS_NUM_SHADES] = 
+              { 0.0f, 0.15f, 0.3f, 0.3f };
+
+static float  S_hue_table[GRAPHICS_NUM_HUES] = 
+              {  30.0f,  90.0f, 120.0f, 180.0f, 210.0f, 300.0f, 330.0f };
 
 /* buffers */
 static unsigned short S_graphics_palettes_buffer[GRAPHICS_PALETTES_BUFFER_SIZE];
@@ -85,6 +118,8 @@ short int graphics_generate_palettes()
 
   unsigned short value;
 
+  float phi;
+
   float y;
   float i;
   float q;
@@ -99,65 +134,68 @@ short int graphics_generate_palettes()
   for (m = 0; m < GRAPHICS_PALETTES_BUFFER_SIZE; m++)
     S_graphics_palettes_buffer[m] = 0;
 
-  /* black & white in all palettes */
+  /* generate palettes */
   for (m = 0; m < GRAPHICS_NUM_PALETTES; m++)
-  {
-    index = m * GRAPHICS_COLORS_PER_PALETTE + 0;
-
-    r = 0;
-    g = 0;
-    b = 0;
-
-    GRAPHICS_PACK_INTO_15_BIT_RGB(r, g, b, value)
-
-    S_graphics_palettes_buffer[index + 1] = value;
-
-    r = 255;
-    g = 255;
-    b = 255;
-
-    GRAPHICS_PACK_INTO_15_BIT_RGB(r, g, b, value)
-
-    S_graphics_palettes_buffer[index + 2] = value;
-  }
-
-  /* generate greys in palette 0 */
-  for (n = 0; n < GRAPHICS_NUM_SHADES; n++)
-  {
-    index = 0 * GRAPHICS_COLORS_PER_PALETTE + 4;
-
-    /* compute rgb values */
-    r = (int) ((S_lum_table[n] * 255) + 0.5f);
-    g = (int) ((S_lum_table[n] * 255) + 0.5f);
-    b = (int) ((S_lum_table[n] * 255) + 0.5f);
-
-    /* convert color to 15 bit rgb */
-    GRAPHICS_PACK_INTO_15_BIT_RGB(r, g, b, value)
-
-    /* insert this color into the palette */
-    S_graphics_palettes_buffer[index + n] = value;
-  }
-
-  /* copy greys to other palettes */
-  for (m = 1; m < GRAPHICS_NUM_PALETTES; m++)
-  {
-    index = m * GRAPHICS_COLORS_PER_PALETTE + 4;
-
-    for (n = 0; n < GRAPHICS_NUM_SHADES; n++)
-      S_graphics_palettes_buffer[index + n] = S_graphics_palettes_buffer[0 + 4 + n];
-  }
-
-  /* generate hues */
-  for (m = 0; m < GRAPHICS_NUM_HUES; m++)
   {
     for (n = 0; n < GRAPHICS_NUM_SHADES; n++)
     {
-      index = m * GRAPHICS_COLORS_PER_PALETTE + 8;
+      index = m * GRAPHICS_NUM_SHADES + n;
 
-      /* compute color in yiq */
-      y = S_lum_table[n];
-      i = S_sat_table[n] * cos((TWO_PI * m) / GRAPHICS_NUM_HUES);
-      q = S_sat_table[n] * sin((TWO_PI * m) / GRAPHICS_NUM_HUES);
+      switch(m)
+      {
+        case GRAPHICS_PALETTE_TEXT_GREY:
+        {
+          y = S_text_lum_table[n];
+          i = 0.0f;
+          q = 0.0f;
+          break;
+        }
+        case GRAPHICS_PALETTE_TEXT_DARK:
+        {
+          y = S_silhouette_lum_table[n];
+          i = 0.0f;
+          q = 0.0f;
+          break;
+        }
+        case GRAPHICS_PALETTE_TEXT_HUE_01:
+        case GRAPHICS_PALETTE_TEXT_HUE_02:
+        case GRAPHICS_PALETTE_TEXT_HUE_03:
+        case GRAPHICS_PALETTE_TEXT_HUE_04:
+        case GRAPHICS_PALETTE_TEXT_HUE_05:
+        case GRAPHICS_PALETTE_TEXT_HUE_06:
+        case GRAPHICS_PALETTE_TEXT_HUE_07:
+        {
+          y = S_text_lum_table[n];
+          i = S_text_sat_table[n] * cos(((TWO_PI * S_hue_table[m - GRAPHICS_PALETTE_TEXT_HUE_01]) / 360.0f) + PI);
+          q = S_text_sat_table[n] * sin(((TWO_PI * S_hue_table[m - GRAPHICS_PALETTE_TEXT_HUE_01]) / 360.0f) + PI);
+          break;
+        }
+        case GRAPHICS_PALETTE_BG_HUE_01:
+        case GRAPHICS_PALETTE_BG_HUE_02:
+        case GRAPHICS_PALETTE_BG_HUE_03:
+        case GRAPHICS_PALETTE_BG_HUE_04:
+        case GRAPHICS_PALETTE_BG_HUE_05:
+        case GRAPHICS_PALETTE_BG_HUE_06:
+        case GRAPHICS_PALETTE_BG_HUE_07:
+        {
+          if (n == GRAPHICS_NUM_SHADES - 1)
+            phi = PI;
+          else
+            phi = 0.0f;
+
+          y = S_bg_lum_table[n];
+          i = S_bg_sat_table[n] * cos(((TWO_PI * S_hue_table[m - GRAPHICS_PALETTE_BG_HUE_01]) / 360.0f) + phi);
+          q = S_bg_sat_table[n] * sin(((TWO_PI * S_hue_table[m - GRAPHICS_PALETTE_BG_HUE_01]) / 360.0f) + phi);
+          break;
+        }
+        default:
+        {
+          y = 0.0f;
+          i = 0.0f;
+          q = 0.0f;
+          break;
+        }
+      }
 
       /* convert from yiq to rgb */
       r = (int) (((y + (i * 0.956f) + (q * 0.619f)) * 255) + 0.5f);
@@ -184,15 +222,9 @@ short int graphics_generate_palettes()
       GRAPHICS_PACK_INTO_15_BIT_RGB(r, g, b, value)
 
       /* insert this color into the palette */
-      S_graphics_palettes_buffer[index + n] = value;
+      S_graphics_palettes_buffer[index] = value;
     }
   }
-
-  /* copy greys for hue in last palette */
-  index = (GRAPHICS_NUM_PALETTES - 1) * GRAPHICS_COLORS_PER_PALETTE + 8;
-
-  for (n = 0; n < GRAPHICS_NUM_SHADES; n++)
-    S_graphics_palettes_buffer[index + n] = S_graphics_palettes_buffer[0 + 4 + n];
 
   return 0;
 }
@@ -454,25 +486,12 @@ short int graphics_read_texture_tga_file(char* filename)
           /* determine the index in palette 0 for this rgb color */
           color_index = -1;
 
-          for (k = 0; k < GRAPHICS_COLORS_PER_PALETTE; k++)
+          for (k = 0; k < GRAPHICS_NUM_SHADES; k++)
           {
-            /* transparency (cyan) */
-            if (k == 0)
+            if (value == S_graphics_palettes_buffer[0 * GRAPHICS_NUM_SHADES + k])
             {
-              if ((r == 0) && (g == 255) && (b == 255))
-              {
-                color_index = k;
-                break;
-              }
-            }
-            /* other colors */
-            else
-            {
-              if (value == S_graphics_palettes_buffer[0 * GRAPHICS_COLORS_PER_PALETTE + k])
-              {
-                color_index = k;
-                break;
-              }
+              color_index = k;
+              break;
             }
           }
 
@@ -558,10 +577,12 @@ short int graphics_write_texture_dat_file(char* filename)
   }
 
   /* write cells */
-  for (m = 0; m < (GRAPHICS_CELLS_BUFFER_SIZE / 2); m++)
+  for (m = 0; m < (GRAPHICS_CELLS_BUFFER_SIZE / 4); m++)
   {
-    output_byte =   (S_graphics_cells_buffer[2 * m + 0] & 0x0F) << 4;
-    output_byte |=  (S_graphics_cells_buffer[2 * m + 1] & 0x0F);
+    output_byte =   (S_graphics_cells_buffer[4 * m + 0] & 0x03) << 6;
+    output_byte |=  (S_graphics_cells_buffer[4 * m + 1] & 0x03) << 4;
+    output_byte |=  (S_graphics_cells_buffer[4 * m + 2] & 0x03) << 2;
+    output_byte |=  (S_graphics_cells_buffer[4 * m + 3] & 0x03);
 
     fwrite(&output_byte, 1, 1, fp);
   }
