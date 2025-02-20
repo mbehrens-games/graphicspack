@@ -46,13 +46,25 @@ enum
   GRAPHICS_NUM_PALETTES 
 };
 
-#define GRAPHICS_PACK_INTO_15_BIT_RGB(r, g, b, value)                          \
-  value = ((r << 7) & 0x7C00) | ((g << 2) & 0x03E0) | ((b >> 3) & 0x001F);
+/* 9 bit rgb */
+#define GRAPHICS_PACK_INTO_9_BIT_RGB(r, g, b, value)                          \
+  value = ((r << 1) & 0x01C0) | ((g >> 2) & 0x0038) | ((b >> 5) & 0x0007);
 
-#define GRAPHICS_UNPACK_FROM_15_BIT_RGB(value, r, g, b)                        \
-  r = ((value >> 7) & 0xF8) | ((value >> 12) & 0x07);                          \
-  g = ((value >> 2) & 0xF8) | ((value >> 7) & 0x07);                           \
-  b = ((value << 3) & 0xF8) | ((value >> 2) & 0x07);
+/* each 3-bit component expands to a multiple of 34 (0, 34, 68, ..., 238) */
+/* the 8-bit value is in the form xxx0 xxx0, where xxx is the 3-bit value */
+#define GRAPHICS_UNPACK_FROM_9_BIT_RGB(value, r, g, b)                        \
+  r = ((value >> 1) & 0xE0) | ((value >> 5) & 0x0E);                          \
+  g = ((value << 2) & 0xE0) | ((value >> 2) & 0x0E);                          \
+  b = ((value << 5) & 0xE0) | ((value << 1) & 0x0E);
+
+/* 12 bit rgb */
+#define GRAPHICS_PACK_INTO_12_BIT_RGB(r, g, b, value)                         \
+  value = ((r << 4) & 0x0F00) | (g & 0x00F0) | ((b >> 4) & 0x000F);
+
+#define GRAPHICS_UNPACK_FROM_12_BIT_RGB(value, r, g, b)                       \
+  r = ((value >> 4) & 0xF0) | ((value >> 8) & 0x0F);                          \
+  g = (value & 0xF0)        | ((value >> 4) & 0x0F);                          \
+  b = ((value << 4) & 0xF0) | (value & 0x0F);
 
 #define GRAPHICS_NUM_SHADES 4
 #define GRAPHICS_NUM_HUES   7
@@ -71,17 +83,17 @@ static float  S_text_lum_table[GRAPHICS_NUM_SHADES] =
 static float  S_text_sat_table[GRAPHICS_NUM_SHADES] = 
               { 0.0f, 0.3f, 0.15f, 0.0f };
 
-static float  S_silhouette_lum_table[GRAPHICS_NUM_SHADES] = 
+static float  S_dark_lum_table[GRAPHICS_NUM_SHADES] = 
               { 0.0f, 0.0f, 0.15f, 0.3f };
 
-static float  S_silhouette_sat_table[GRAPHICS_NUM_SHADES] = 
+static float  S_dark_sat_table[GRAPHICS_NUM_SHADES] = 
               { 0.0f, 0.0f, 0.15f, 0.3f };
 
 static float  S_bg_lum_table[GRAPHICS_NUM_SHADES] = 
-              { 0.0f, 0.15f, 0.3f, 0.7f };
+              { 0.1f, 0.2f, 0.3f, 0.7f };
 
 static float  S_bg_sat_table[GRAPHICS_NUM_SHADES] = 
-              { 0.0f, 0.15f, 0.3f, 0.3f };
+              { 0.1f, 0.2f, 0.3f, 0.3f };
 
 static float  S_hue_table[GRAPHICS_NUM_HUES] = 
               {  30.0f,  90.0f, 120.0f, 180.0f, 210.0f, 300.0f, 330.0f };
@@ -152,7 +164,7 @@ short int graphics_generate_palettes()
         }
         case GRAPHICS_PALETTE_TEXT_DARK:
         {
-          y = S_silhouette_lum_table[n];
+          y = S_dark_lum_table[n];
           i = 0.0f;
           q = 0.0f;
           break;
@@ -218,8 +230,8 @@ short int graphics_generate_palettes()
       if (b > 255)
         b = 255;
 
-      /* convert color to 15 bit rgb */
-      GRAPHICS_PACK_INTO_15_BIT_RGB(r, g, b, value)
+      /* convert color to 12 bit rgb */
+      GRAPHICS_PACK_INTO_12_BIT_RGB(r, g, b, value)
 
       /* insert this color into the palette */
       S_graphics_palettes_buffer[index] = value;
@@ -481,7 +493,7 @@ short int graphics_read_texture_tga_file(char* filename)
           g = pixel_data[pixel_index * pixel_num_bytes + 1];
           b = pixel_data[pixel_index * pixel_num_bytes + 0];
 
-          GRAPHICS_PACK_INTO_15_BIT_RGB(r, g, b, value)
+          GRAPHICS_PACK_INTO_12_BIT_RGB(r, g, b, value)
 
           /* determine the index in palette 0 for this rgb color */
           color_index = -1;
@@ -528,9 +540,8 @@ short int graphics_write_texture_dat_file(char* filename)
 
   char signature[17];
 
-  unsigned short value;
-
-  unsigned char output_byte;
+  unsigned short value[2];
+  unsigned char  byte[3];
 
   /* reset signature */
   for (m = 0; m < 17; m++)
@@ -561,30 +572,33 @@ short int graphics_write_texture_dat_file(char* filename)
   fwrite(signature, 1, 16, fp);
 
   /* write palette */
-  for (m = 0; m < GRAPHICS_PALETTES_BUFFER_SIZE; m++)
+  for (m = 0; m < (GRAPHICS_PALETTES_BUFFER_SIZE / 2); m++)
   {
-    value = S_graphics_palettes_buffer[m];
+    value[0] = S_graphics_palettes_buffer[2 * m + 0];
+    value[1] = S_graphics_palettes_buffer[2 * m + 1];
 
-    /* high byte */
-    output_byte = (value >> 8) & 0x7F;
+    /* packing 2 palette colors into 3 bytes */
+    /* if the colors are "a" and "b", then the    */
+    /* bytes are: aaaa aaaa, aaaa bbbb, bbbb bbbb */
 
-    fwrite(&output_byte, 1, 1, fp);
+    byte[0] = (value[0] >> 4) & 0xFF;
+    byte[1] = ((value[0] << 4) & 0xF0) | ((value[1] >> 8) & 0x0F);
+    byte[2] = value[1] & 0xFF;
 
-    /* low byte */
-    output_byte = value & 0xFF;
-
-    fwrite(&output_byte, 1, 1, fp);
+    fwrite(&byte[0], 1, 1, fp);
+    fwrite(&byte[1], 1, 1, fp);
+    fwrite(&byte[2], 1, 1, fp);
   }
 
   /* write cells */
   for (m = 0; m < (GRAPHICS_CELLS_BUFFER_SIZE / 4); m++)
   {
-    output_byte =   (S_graphics_cells_buffer[4 * m + 0] & 0x03) << 6;
-    output_byte |=  (S_graphics_cells_buffer[4 * m + 1] & 0x03) << 4;
-    output_byte |=  (S_graphics_cells_buffer[4 * m + 2] & 0x03) << 2;
-    output_byte |=  (S_graphics_cells_buffer[4 * m + 3] & 0x03);
+    byte[0] =   (S_graphics_cells_buffer[4 * m + 0] & 0x03) << 6;
+    byte[0] |=  (S_graphics_cells_buffer[4 * m + 1] & 0x03) << 4;
+    byte[0] |=  (S_graphics_cells_buffer[4 * m + 2] & 0x03) << 2;
+    byte[0] |=  (S_graphics_cells_buffer[4 * m + 3] & 0x03);
 
-    fwrite(&output_byte, 1, 1, fp);
+    fwrite(&byte[0], 1, 1, fp);
   }
 
   /* close output file */
@@ -635,7 +649,7 @@ short int graphics_write_palette_gpl_file(char* filename)
   {
     value = S_graphics_palettes_buffer[m];
 
-    GRAPHICS_UNPACK_FROM_15_BIT_RGB(value, r, g, b)
+    GRAPHICS_UNPACK_FROM_12_BIT_RGB(value, r, g, b)
 
     if (r < 10)
       fprintf(fp, "  %d ", r);
